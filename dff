@@ -1,0 +1,122 @@
+#!/bin/bash
+##########################################
+#                                        #
+#      DuplicatenFilenSearchn - dff      #
+#                                        #
+# Changelog: 20261012 by MGM             #
+# Change hash to fasthash                #
+#                                        #
+# Created 20261011 mgm@thehackers.space  #
+#                                        #
+##########################################
+
+_Parametros=("$@")
+_NPar="$#"
+_Dest="./"
+_Name="no"
+_Size="no"
+_FastHash="no"
+_MaxSizeF="15" #Char
+_Slice="1500000" #bytes
+_Version="0.1"
+
+##-----Functions---------------------------------##
+func_help(){
+        echo -e "\n\t\t\tDuplicate File Finder - version: $_Version "
+        echo -e "\t\t\t    https://github.com/w6w/dff \n "
+        echo -e "\t$0 usage: \n"
+        echo -e "\t-h|--help\t:Show help"
+        echo -e ""
+        echo -e "\t$0  [parameters]  [target_folder] \n"
+        echo -e "\t[parameters] may be\t:[-n|-i|-s|-H]"
+        echo -e "\t[target_folder] may be\t:[\"absolute\" | \"relative\"] (the \"current folder\" if omitted)\n"
+        echo -e "\t-n|--name\t:Finds files by name (with identical names)"
+        echo -e "\t-i|--iname\t:Finds files by name (case INsensitive)"
+        echo -e "\t-s|--size\t:Finds files by name (case INsensitive)"
+        echo -e "\t-H|--hash\t:Calculates a \"fast MD5 hash\" of files of exact sizes in target folder"
+        echo -e ""
+        echo -e "EXAMPLES:"
+        echo -e "$0 --name ./ \t\t#To find files by identical names in current work directory."
+        echo -e "$0 --iname --hash /etc\t#To find files by names in \"/etc\" directory."
+        echo ""
+	exit 0
+}
+
+func_info(){     #Recolhe infos adicionais nao obrigatorias
+	for i in $(eval echo "{$(( $_NPar - 1 ))..0}") ; do
+		#[[ "${_Parametros[$i]}" = "-n" || "${_Parametros[$i]}" = "--nota" || "${_Parametros[$i]}" = "--anotacoes"  ]] && _Note="${_Parametros[$(($i+1))]}" && _Note=`echo $_Note | cut -c-35`
+                [[ "${_Parametros[$i]}" = "-i" || "${_Parametros[$i]}" = "--iname" ]] && _Name="Case_INsensitive"
+		[[ "${_Parametros[$i]}" = "-n" || "${_Parametros[$i]}" = "--name" ]] && _Name="Case_Sensitive"
+		[[ "${_Parametros[$i]}" = "-s" || "${_Parametros[$i]}" = "--size" ]] && _Size="yes" 
+		[[ "${_Parametros[$i]}" = "-H" || "${_Parametros[$i]}" = "--hash" || "${_Parametros[$i]}" = "--md5" ]] && _FastHash="yes"
+		[[ "${_Parametros[$i]}" = "-h" || "${_Parametros[$i]}" = "--help" ]] && func_help
+                [[ -d "${_Parametros[$i]}"  ]] &> /dev/null && _Dest="${_Parametros[$i]}" 
+        done
+	echo -e "\nPWD=\"$(pwd)\"\nTarget=\"$_Dest\"\nCompare_name=\"$_Name\"\nCompare_size=\"$_Size\"\nCompare_FastHash=\"$_FastHash\" \n" 
+}
+
+func_name(){
+	_NList=""
+	if [[ "$_Name" = "Case_INsensitive" ]] ; then
+		echo -e "By name $_Name:\nSize(B):\tFile_name:"
+		_NList=$(find -P "$_Dest" -type f | awk -F'/' '{nome_orig=$NF; nome_low=tolower(nome_orig); count[nome_low]++; linhas[nome_low]=linhas[nome_low] $0 "\n"} END {for (n in count) if (count[n] > 1) printf "%s", linhas[n]}'  )  
+		echo "$_NList" | xargs -d '\n' du -b 2>/dev/null | expand -t "$_MaxSizeF"
+		echo ""
+	fi
+	if [[ "$_Name" = "Case_Sensitive" ]] ; then
+		echo -e "By name $_Name:\nSize(B):\tFile_name:"
+		_NList=$(find -P "$_Dest" -type f  | awk -F'/' '{nome=$NF; count[nome]++; linhas[nome]=linhas[nome] $0 "\n"} END {for (n in count) if (count[n] > 1) printf "%s", linhas[n]}' ) 
+		echo "$_NList" | xargs -d '\n' du -b 2>/dev/null | expand -t "$_MaxSizeF"
+		echo ""
+	fi
+}
+
+func_size(){
+	echo -e "By size (Bytes):\nSize(B):\tFila_name:"
+	_SList=$(find "$_Dest" -type f -printf "%"$_MaxSizeF"s\t%p\n" | sort -n | uniq -D --check-chars="$_MaxSizeF" | cut -c"$(($_MaxSizeF+2))"- ) 
+	echo "$_SList" | xargs -d '\n' du -b 2>/dev/null | expand -t "$_MaxSizeF"
+	echo ""
+}
+
+func_FastHash(){
+	[[ "$_Size" != "yes" ]] && { _Size="yes" ; func_size ; }
+	_OutHash="" 
+	_OutHash=$(
+	_Fa="0" ; _Fu="0"
+	if [[ "$_FastHash" = "yes" ]] ; then
+		echo -e "Searching for similarities in $(echo "$_SList" | wc -l) files.....\n" >&2
+		_Progress="1"
+		while read i ; do
+			if [[ "`du -b "$i" 2>/dev/null | tr "\t" " " | cut -d" " -f1`" -le "$(($_Slice * 2))" ]] ; then
+				echo "00000000000000000000000000000000`md5sum "$i" | cut -d" " -f1` $i" >&3
+				_Fu="$(($_Fu+1))"  #Debug
+			else
+				echo "$(head -c $_Slice "$i" | md5sum | cut -d" " -f1)$(tail -c $(($_Slice+1)) "$i" | md5sum | cut -d" " -f1) $i" >&3
+				_Fa="$(($_Fa+1))" #Debug
+			fi
+			echo -ne "File number\t$_Progress (Fast-md5 = $_Fa , Full-md5 = $_Fu) done; \r" >&2
+			_Progress="$(($_Progress+1))"
+		done <<< "$_SList" 3>&1 | sort -n | uniq -D --check-chars="64"  #| cut -c"$((64+2))"- 
+		#echo "$_SList" | xargs -d '\n' du -b  #Debug
+	fi
+	)
+	[[ -n "$_OutHash" ]] && echo -e "\nSimilar hashes were found in these $(echo "$_OutHash" | wc -l) files! (At the beginning and end of each).\nIt is recommended that you verify whether they are identical before deleting them.\n\n$_OutHash"
+}
+##-End functions---------------------------------##
+
+#### Main----------------------------------------##
+[[ -z "$@" ]] && func_help
+_ParAccept="-i --iname -n --name -s --size -H --hash --md5 -h --help" ; _ParOK="0"
+for i in "$@" ; do
+	_ParOK="0"
+	for j in $_ParAccept ; do
+		[[ "$i" = "$j" || -n "`echo $i | grep \/`" ]] && _ParOK="1"
+	done
+	[[ "$_ParOK" != "1" ]] && { echo -e "\nERROR: The \"$i\" parameter is unknown!\n\nTry $0 --help." ; exit 1 ; }
+done
+func_info
+func_name
+[[ "$_Size" = "yes" ]] && func_size
+[[ "$_FastHash" = "yes" ]] && time func_FastHash
+exit 0
+#### End Main------------------------------------##
