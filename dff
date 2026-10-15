@@ -3,6 +3,9 @@
 #                                        #
 #      DuplicatenFilenSearchn - dff      #
 #                                        #
+# Changelog: 20261014 by MGM             #
+# File size limit added                  #
+#                                        #
 # Changelog: 20261012 by MGM             #
 # Change hash to fasthash                #
 #                                        #
@@ -10,15 +13,9 @@
 #                                        #
 ##########################################
 
-_Parametros=("$@")
-_NPar="$#"
-_Dest="./"
-_Name="no"
-_Size="no"
-_FastHash="no"
-_MaxSizeF="15" #Char
-_Slice="1500000" #bytes
-_Version="0.1"
+_MaxSizeF="15" #Characters - Max_Size_Fild
+_Slice="1500000" #Bytes - initial and final slice of the file for hash calculation
+_Version="0.2"
 
 ##-----Functions---------------------------------##
 func_help(){
@@ -28,44 +25,53 @@ func_help(){
         echo -e "\t-h|--help\t:Show help"
         echo -e ""
         echo -e "\t$0  [parameters]  [target_folder] \n"
-        echo -e "\t[parameters] may be\t:[-n|-i|-s|-H]"
-        echo -e "\t[target_folder] may be\t:[\"absolute\" | \"relative\"] (the \"current folder\" if omitted)\n"
+        echo -e "\t[parameters] may be\t:[-n|-i|-s|-H|-l|-L]"
+        echo -e "\t[target_folder] may be\t:[\"absolute\" | \"relative\"] (assumes current \"./\" if omitted)\n"
         echo -e "\t-n|--name\t:Finds files by name (with identical names)"
         echo -e "\t-i|--iname\t:Finds files by name (case INsensitive)"
-        echo -e "\t-s|--size\t:Finds files by name (case INsensitive)"
-        echo -e "\t-H|--hash\t:Calculates a \"fast MD5 hash\" of files of exact sizes in target folder"
+        echo -e "\t-s|--size\t:Finds files by size (with identical sizes)"
+        echo -e "\t-H|--hash\t:Calculates a \"fast hash\" of files of exact sizes in target folder"
+	echo -e "\t-l|--lower\t:Lower limit for scan file size (in Bytes)"
+	echo -e "\t-L|-U|--upper\t:Upper limit for scan file size (in Bytes)"
         echo -e ""
         echo -e "EXAMPLES:"
         echo -e "$0 --name ./ \t\t#To find files by identical names in current work directory."
-        echo -e "$0 --iname --hash /etc\t#To find files by names in \"/etc\" directory."
+        echo -e "$0 --iname -s /etc\t#To find files by names and by size in \"/etc\" directory."
+	echo -e "$0 -H -l 10 -L 5000\t#To find files with identical, repeated sizes between 10 and 5000 bytes in current directory."
         echo ""
 	exit 0
 }
 
-func_info(){     #Recolhe infos adicionais nao obrigatorias
+func_info(){
 	for i in $(eval echo "{$(( $_NPar - 1 ))..0}") ; do
-		#[[ "${_Parametros[$i]}" = "-n" || "${_Parametros[$i]}" = "--nota" || "${_Parametros[$i]}" = "--anotacoes"  ]] && _Note="${_Parametros[$(($i+1))]}" && _Note=`echo $_Note | cut -c-35`
-                [[ "${_Parametros[$i]}" = "-i" || "${_Parametros[$i]}" = "--iname" ]] && _Name="Case_INsensitive"
-		[[ "${_Parametros[$i]}" = "-n" || "${_Parametros[$i]}" = "--name" ]] && _Name="Case_Sensitive"
-		[[ "${_Parametros[$i]}" = "-s" || "${_Parametros[$i]}" = "--size" ]] && _Size="yes" 
-		[[ "${_Parametros[$i]}" = "-H" || "${_Parametros[$i]}" = "--hash" || "${_Parametros[$i]}" = "--md5" ]] && _FastHash="yes"
-		[[ "${_Parametros[$i]}" = "-h" || "${_Parametros[$i]}" = "--help" ]] && func_help
-                [[ -d "${_Parametros[$i]}"  ]] &> /dev/null && _Dest="${_Parametros[$i]}" 
-        done
-	echo -e "\nPWD=\"$(pwd)\"\nTarget=\"$_Dest\"\nCompare_name=\"$_Name\"\nCompare_size=\"$_Size\"\nCompare_FastHash=\"$_FastHash\" \n" 
+		case "${_Parametros[$i]}" in
+			-n|--name|--Name) _Name="Case_Sensitive" ;;
+			-i|--iname) _Name="Case_INsensitive" ;;
+			-s|--size) _Size="yes" ;;
+			-H|--hash|--md5) _FastHash="yes" ;;
+			-h|--help) echo Help ;;
+			-l|--lower|--lowerlimit) [[ "${_Parametros[$(($i+1))]}" -gt "0" ]] && _LowerLimFSize="${_Parametros[$(($i+1))]}" ;;
+			-U|-L|--upper|--upperlimit) [[ "${_Parametros[$(($i+1))]}" -gt "0" ]] && _UpperLimFSize="${_Parametros[$(($i+1))]}" ;;
+			[eE]xit) exit 0 ;;
+			*) [[ -d "${_Parametros[$i]}"  ]] && _Dest="${_Parametros[$i]}" ;;
+		esac
+	done
+	echo -e "\nPWD=\"$(pwd)\"\nTarget=\"$_Dest\"\nCompare_names=\"$_Name\"\nCompare_size=\"$_Size\"\nCompare_FastHash=\"$_FastHash\"\nLower_limit_file_size=\"$_LowerLimFSize\"\nUpper_limit_file_size=\"$_UpperLimFSize\"  " 
+	[[ -n "$_UpperLimFSize" && "$_UpperLimFSize" -le "$_LowerLimFSize" ]] && { echo -e "\nERROR: The value of \"Upper_limit_file_siz\" cannot be less or equal than \"Lower_limit_file_siz\"\n " ; exit 1 ; }
+	_LowerLimFSize="-size +"$_LowerLimFSize"c" ; [[ -n "$_UpperLimFSize" ]] && _UpperLimFSize="-size -"$_UpperLimFSize"c"
 }
 
 func_name(){
-	_NList=""
+	_NList="" ; echo ""
 	if [[ "$_Name" = "Case_INsensitive" ]] ; then
 		echo -e "By name $_Name:\nSize(B):\tFile_name:"
-		_NList=$(find -P "$_Dest" -type f | awk -F'/' '{nome_orig=$NF; nome_low=tolower(nome_orig); count[nome_low]++; linhas[nome_low]=linhas[nome_low] $0 "\n"} END {for (n in count) if (count[n] > 1) printf "%s", linhas[n]}'  )  
+		_NList=$(find -P "$_Dest" -type f $_LowerLimFSize $_UpperLimFSize | awk -F'/' '{nome_orig=$NF; nome_low=tolower(nome_orig); count[nome_low]++; linhas[nome_low]=linhas[nome_low] $0 "\n"} END {for (n in count) if (count[n] > 1) printf "%s", linhas[n]}'  )  
 		echo "$_NList" | xargs -d '\n' du -b 2>/dev/null | expand -t "$_MaxSizeF"
 		echo ""
 	fi
 	if [[ "$_Name" = "Case_Sensitive" ]] ; then
 		echo -e "By name $_Name:\nSize(B):\tFile_name:"
-		_NList=$(find -P "$_Dest" -type f  | awk -F'/' '{nome=$NF; count[nome]++; linhas[nome]=linhas[nome] $0 "\n"} END {for (n in count) if (count[n] > 1) printf "%s", linhas[n]}' ) 
+		_NList=$(find -P "$_Dest" -type f $_LowerLimFSize $_UpperLimFSize | awk -F'/' '{nome=$NF; count[nome]++; linhas[nome]=linhas[nome] $0 "\n"} END {for (n in count) if (count[n] > 1) printf "%s", linhas[n]}' ) 
 		echo "$_NList" | xargs -d '\n' du -b 2>/dev/null | expand -t "$_MaxSizeF"
 		echo ""
 	fi
@@ -73,7 +79,7 @@ func_name(){
 
 func_size(){
 	echo -e "By size (Bytes):\nSize(B):\tFila_name:"
-	_SList=$(find "$_Dest" -type f -printf "%"$_MaxSizeF"s\t%p\n" | sort -n | uniq -D --check-chars="$_MaxSizeF" | cut -c"$(($_MaxSizeF+2))"- ) 
+	_SList=$(find "$_Dest" -type f $_LowerLimFSize $_UpperLimFSize -printf "%"$_MaxSizeF"s\t%p\n" | sort -n | uniq -D --check-chars="$_MaxSizeF" | cut -c"$(($_MaxSizeF+2))"- ) 
 	echo "$_SList" | xargs -d '\n' du -b 2>/dev/null | expand -t "$_MaxSizeF"
 	echo ""
 }
@@ -105,15 +111,14 @@ func_FastHash(){
 ##-End functions---------------------------------##
 
 #### Main----------------------------------------##
-[[ -z "$@" ]] && func_help
-_ParAccept="-i --iname -n --name -s --size -H --hash --md5 -h --help" ; _ParOK="0"
-for i in "$@" ; do
-	_ParOK="0"
-	for j in $_ParAccept ; do
-		[[ "$i" = "$j" || -n "`echo $i | grep \/`" ]] && _ParOK="1"
-	done
-	[[ "$_ParOK" != "1" ]] && { echo -e "\nERROR: The \"$i\" parameter is unknown!\n\nTry $0 --help." ; exit 1 ; }
-done
+_Parametros=("$@")
+_NPar="$#" ; [[ "$_NPar" -eq "0" ]] && func_help
+_Dest="./"
+_Name="no"
+_Size="no"
+_FastHash="no"
+_LowerLimFSize="0"
+_UpperLimFSize="" #Default is empty
 func_info
 func_name
 [[ "$_Size" = "yes" ]] && func_size
