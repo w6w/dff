@@ -52,6 +52,7 @@ func_info(){
 			-h|--help) echo Help ;;
 			-l|--lower|--lowerlimit) [[ "${_Parametros[$(($i+1))]}" -gt "0" ]] && _LowerLimFSize="${_Parametros[$(($i+1))]}" ;;
 			-U|-L|--upper|--upperlimit) [[ "${_Parametros[$(($i+1))]}" -gt "0" ]] && _UpperLimFSize="${_Parametros[$(($i+1))]}" ;;
+			-v|--version) func_help ;;
 			[eE]xit) exit 0 ;;
 			*) [[ -d "${_Parametros[$i]}"  ]] && _Dest="${_Parametros[$i]}" ;;
 		esac
